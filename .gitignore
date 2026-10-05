@@ -1,0 +1,5 @@
+review-*.png
+.DS_Store
+Thumbs.db
+node_modules/
+.qa-profile/

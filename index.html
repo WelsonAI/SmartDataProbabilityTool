@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#6bd5c0">
+  <meta name="description" content="Alat interaktif pengurusan data dan kebolehjadian untuk murid Tahun 4 hingga Tahun 6.">
+  <title>Smart Data &amp; Probability Tool</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='%23fff5c9' stroke='%230a7564' stroke-width='5'/%3E%3Cpath d='M32 32V5A27 27 0 0 1 59 32Z' fill='%236d57c8'/%3E%3Cpath d='M32 32h27A27 27 0 0 1 18 54Z' fill='%23f2a43b'/%3E%3Ccircle cx='32' cy='32' r='4' fill='%230a7564'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Noto+Sans+SC:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">📊</div>
+        <div>
+          <h1 data-i18n="title">Jom Teroka Data!</h1>
+          <p data-i18n="subtitle">Bina carta, analisis data dan uji kebolehjadian.</p>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <button id="soundToggle" class="sound-button" type="button" aria-pressed="true">
+          <span aria-hidden="true">🔊</span>
+          <span data-i18n="soundOn">Bunyi: Buka</span>
+        </button>
+        <div class="language-switch" role="group" aria-label="Language">
+          <button type="button" data-lang="ms" class="active">BM</button>
+          <button type="button" data-lang="zh">中文</button>
+          <button type="button" data-lang="en">EN</button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="mode-tabs" aria-label="Aktiviti utama">
+      <button type="button" data-mode="build" class="active"><span>📊</span><span data-i18n="tabBuild">Bina Carta</span></button>
+      <button type="button" data-mode="analyse"><span>🔎</span><span data-i18n="tabAnalyse">Analisis Data</span></button>
+      <button type="button" data-mode="chance"><span>🎯</span><span data-i18n="tabChance">Kebolehjadian</span></button>
+    </nav>
+
+    <main class="workspace">
+      <aside class="control-card">
+        <div class="eyebrow" data-i18n="chooseActivity">Pilih aktiviti</div>
+        <h2 id="sideTitle">Bina Carta</h2>
+        <div class="divider"></div>
+
+        <label for="gradeSelect" data-i18n="grade">Tahun</label>
+        <select id="gradeSelect">
+          <option value="4">Tahun 4</option>
+          <option value="5">Tahun 5</option>
+          <option value="6">Tahun 6</option>
+        </select>
+
+        <label for="activitySelect" data-i18n="activity">Aktiviti</label>
+        <select id="activitySelect"></select>
+
+        <div id="scopeNote" class="scope-note"></div>
+        <div id="tipBox" class="tip-box"><span aria-hidden="true">☝️</span><span></span></div>
+
+        <div class="side-spacer"></div>
+        <button id="teacherButton" class="teacher-button" type="button">👩‍🏫 <span data-i18n="teacherMode">Tetapan guru</span></button>
+        <button id="resetToolButton" class="secondary-button" type="button">↻ <span data-i18n="resetTool">Tetapkan semula alat</span></button>
+      </aside>
+
+      <section class="activity-card" aria-live="polite">
+        <div class="activity-heading">
+          <div>
+            <div class="eyebrow" data-i18n="tryIt">Mari cuba!</div>
+            <h2 id="activityTitle"></h2>
+          </div>
+          <div class="heading-actions"><span id="gradeBadge" class="grade-badge">T4</span></div>
+        </div>
+
+        <div id="challengePanel" class="challenge-panel"></div>
+        <div id="visualStage" class="visual-stage"></div>
+        <div id="controlArea" class="control-area"></div>
+        <div id="liveSummary" class="feedback neutral" role="status"></div>
+      </section>
+    </main>
+
+    <div class="steps" aria-label="Langkah aktiviti">
+      <div><b>1</b><span data-i18n="stepObserve">Perhatikan</span></div>
+      <div><b>2</b><span data-i18n="stepTry">Gerakkan &amp; cuba</span></div>
+      <div><b>3</b><span data-i18n="stepCheck">Lihat perubahan</span></div>
+    </div>
+  </div>
+
+  <footer class="forest-footer" aria-hidden="true"><img src="assets/forest-footer.png" alt=""></footer>
+
+  <dialog id="teacherDialog" class="teacher-dialog">
+    <form method="dialog" id="teacherForm">
+      <button class="dialog-close" value="cancel" aria-label="Close" type="submit">×</button>
+      <div class="eyebrow" data-i18n="teacherMode">Tetapan guru</div>
+      <h2 data-i18n="customSettings">Tetapkan data demonstrasi</h2>
+      <div class="divider"></div>
+      <p data-i18n="customHelp">Gunakan nilai ini dalam alat semasa untuk demonstrasi kelas.</p>
+      <div class="data-inputs">
+        <div><label for="teacherA">A</label><input id="teacherA" type="number" min="0" max="12" value="4"></div>
+        <div><label for="teacherB">B</label><input id="teacherB" type="number" min="0" max="12" value="7"></div>
+        <div><label for="teacherC">C</label><input id="teacherC" type="number" min="0" max="12" value="5"></div>
+        <div><label for="teacherD">D</label><input id="teacherD" type="number" min="0" max="12" value="8"></div>
+      </div>
+      <div id="teacherPreview" class="teacher-preview">A 4 · B 7 · C 5 · D 8</div>
+      <p id="teacherError" class="dialog-error"></p>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="secondary-button" data-i18n="cancel">Batal</button>
+        <button type="button" id="useTeacherSettings" class="primary-button">✓ <span data-i18n="useSettings">Gunakan tetapan</span></button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js?v=1"></script>
+</body>
+</html>
