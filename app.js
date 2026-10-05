@@ -247,16 +247,34 @@ function updateStatisticsReadout() {
   setSummary(statisticsFormulaHTML(state.tool.values));
 }
 
+function layoutNumberChips() {
+  const line = document.querySelector(".number-line"); if (!line) return;
+  const frequency = new Map(); state.tool.values.forEach(value => frequency.set(value, (frequency.get(value) || 0) + 1));
+  const groupBase = new Map(); const lastXAtLevel = []; const lineWidth = line.clientWidth || 600; let highestLevel = 0;
+  [...frequency.entries()].sort(([a], [b]) => a - b).forEach(([value, count]) => {
+    const x = value / 12 * lineWidth; let base = 0;
+    while (Array.from({ length: count }, (_, offset) => lastXAtLevel[base + offset]).some(lastX => Number.isFinite(lastX) && x - lastX < 46)) base += 1;
+    groupBase.set(value, base);
+    Array.from({ length: count }, (_, offset) => base + offset).forEach(level => { lastXAtLevel[level] = x; highestLevel = Math.max(highestLevel, level); });
+  });
+  line.style.height = `${Math.max(170, 72 + (highestLevel + 1) * 46)}px`;
+  const seen = new Map();
+  line.querySelectorAll("[data-number-chip]").forEach(chip => {
+    const index = Number(chip.dataset.numberChip); const value = state.tool.values[index]; const occurrence = seen.get(value) || 0; seen.set(value, occurrence + 1);
+    chip.style.left = `${value / 12 * 100}%`; chip.style.bottom = `${29 + (groupBase.get(value) + occurrence) * 46}px`; chip.style.top = "auto";
+  });
+}
+
 function attachNumberDrag() {
   els.stage.querySelectorAll("[data-number-chip]").forEach(chip => {
     chip.addEventListener("keydown", event => {
       if (!["ArrowLeft", "ArrowRight", "ArrowDown", "ArrowUp"].includes(event.key)) return;
       event.preventDefault(); const index = Number(chip.dataset.numberChip); const delta = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : 1;
-      state.tool.values[index] = clamp(state.tool.values[index] + delta, 0, 12); state.tool.interacted = true; chip.textContent = state.tool.values[index]; chip.style.left = `${state.tool.values[index] / 12 * 100}%`; updateStatisticsReadout(); beep("drop");
+      state.tool.values[index] = clamp(state.tool.values[index] + delta, 0, 12); state.tool.interacted = true; chip.textContent = state.tool.values[index]; layoutNumberChips(); updateStatisticsReadout(); beep("drop");
     });
     chip.addEventListener("pointerdown", event => {
       event.preventDefault(); const index = Number(chip.dataset.numberChip); const track = chip.closest(".number-line"); chip.setPointerCapture?.(event.pointerId); chip.classList.add("dragging");
-      const move = pointerEvent => { const rect = track.getBoundingClientRect(); const value = clamp(Math.round((pointerEvent.clientX - rect.left) / rect.width * 12), 0, 12); if (state.tool.values[index] !== value) { state.tool.values[index] = value; state.tool.interacted = true; chip.textContent = value; chip.style.left = `${value / 12 * 100}%`; updateStatisticsReadout(); } };
+      const move = pointerEvent => { const rect = track.getBoundingClientRect(); const value = clamp(Math.round((pointerEvent.clientX - rect.left) / rect.width * 12), 0, 12); if (state.tool.values[index] !== value) { state.tool.values[index] = value; state.tool.interacted = true; chip.textContent = value; layoutNumberChips(); updateStatisticsReadout(); } };
       const end = () => { chip.removeEventListener("pointermove", move); chip.removeEventListener("pointerup", end); chip.removeEventListener("pointercancel", end); chip.classList.remove("dragging"); beep("drop"); };
       chip.addEventListener("pointermove", move); chip.addEventListener("pointerup", end); chip.addEventListener("pointercancel", end);
     });
@@ -266,9 +284,10 @@ function attachNumberDrag() {
 function renderStatisticsLab() {
   const t = state.tool;
   setChallenge(loc(ml("Gerakkan data, lihat statistik berubah", "移动数据，观察统计量变化", "Move the data and watch the statistics change")), loc(ml("Tarik kad nombor di sepanjang garis 0 hingga 12. Susunan di bawah sentiasa daripada kecil kepada besar.", "沿着 0 至 12 的数轴拖动数字卡；下方会自动从小到大排列。", "Drag the number cards along the 0–12 line. The row below always sorts them from least to greatest.")));
-  els.stage.innerHTML = `<div class="statistics-board"><div class="number-line">${Array.from({ length: 13 }, (_, value) => `<i style="left:${value / 12 * 100}%"><span>${value}</span></i>`).join("")}${t.values.map((value, index) => `<button type="button" class="number-chip" data-number-chip="${index}" style="left:${value / 12 * 100}%;top:${12 + index % 3 * 46}px;--chip:${COLORS[index % 4]}" aria-label="${loc(ml("Kad nombor", "数字卡", "Number card"))} ${value}">${value}</button>`).join("")}</div><div id="statisticsReadout">${statisticsReadoutHTML(t.values)}</div></div>`;
+  els.stage.innerHTML = `<div class="statistics-board"><div class="number-line">${Array.from({ length: 13 }, (_, value) => `<i style="left:${value / 12 * 100}%"><span>${value}</span></i>`).join("")}${t.values.map((value, index) => `<button type="button" class="number-chip" data-number-chip="${index}" style="--chip:${COLORS[index % 4]}" aria-label="${loc(ml("Kad nombor", "数字卡", "Number card"))} ${value}">${value}</button>`).join("")}</div><div id="statisticsReadout">${statisticsReadoutHTML(t.values)}</div></div>`;
   els.controls.innerHTML = `<div class="number-picker"><span>${loc(ml("Pilih nombor untuk ditambah", "选择要添加的号码", "Choose a number to add"))}</span><div>${Array.from({ length: 13 }, (_, value) => `<button type="button" data-add-number="${value}" ${t.values.length >= 10 ? "disabled" : ""}>${value}</button>`).join("")}</div></div><div class="board-actions"><button type="button" id="removeNumber" class="secondary-button compact" ${t.values.length <= 3 ? "disabled" : ""}>− ${loc(ml("Keluarkan kad terakhir", "移除最后一张", "Remove last card"))}</button></div>`;
   attachNumberDrag();
+  layoutNumberChips();
   document.querySelectorAll("[data-add-number]").forEach(button => button.addEventListener("click", () => changeTool(x => { if (x.values.length < 10) x.values.push(Number(button.dataset.addNumber)); x.interacted = true; }, "drop")));
   document.querySelector("#removeNumber").addEventListener("click", () => changeTool(x => { if (x.values.length > 3) x.values.pop(); x.interacted = true; }));
   setSummary(statisticsFormulaHTML(t.values));
