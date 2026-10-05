@@ -5,8 +5,8 @@ Interactive classroom manipulatives for Malaysian primary Mathematics (SK/SJKC),
 ## Included tools
 
 - Year 4: pictograph builder, bar-chart builder, and matching views for the same data.
-- Year 5: pie-chart explorer and a draggable mode/median/mean/range laboratory.
-- Year 6: 45° pie-chart builder and a probability simulator using the five textbook chance categories.
+- Year 5: pie-chart explorer and a draggable mode/median/mean/range laboratory with pupil-selected number cards and all four live calculations.
+- Year 6: an eight-sector 45° pie-chart builder and a guided probability simulator using the five textbook chance categories.
 - Bahasa Melayu, 中文 and English interfaces.
 - Pointer dragging, touch-friendly tap alternatives, keyboard controls and teacher-defined demonstration data.
 

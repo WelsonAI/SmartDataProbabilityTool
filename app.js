@@ -87,15 +87,15 @@ function defaults(activity) {
     chartCompare: { counts, interacted: false },
     pieExplorer: { counts, selected: 0, interacted: false },
     statisticsLab: { values: [...counts, 5, 3, 5], interacted: false },
-    pieComposer: { sectors: ["A", "A", "B", "C", "C", "C", "C", "D"], selected: null, interacted: false },
-    probabilityLab: { green: clamp(counts[0], 0, 8), purple: clamp(counts[1], 0, 8), draws: [], last: null, interacted: false },
+    pieComposer: { sectors: [], selected: null, interacted: false },
+    probabilityLab: { green: clamp(counts[0], 0, 8), purple: clamp(counts[1], 0, 8), target: "green", draws: [], last: null, interacted: false },
   }[activity];
 }
 
 function setChallenge(title, subtitle) { els.challenge.innerHTML = `<span>${loc(ml("Cuba sendiri!", "动手试试！", "Try it!"))}</span><h3>${title}</h3><p>${subtitle}</p>`; }
 function setSummary(text, tone = "neutral") { els.summary.className = `feedback ${tone}`; els.summary.innerHTML = text; }
 function changeTool(mutator, tone = "tap") { mutator(state.tool); beep(tone); renderTool(); }
-function slider(id, label, min, max, value, suffix = "") { return `<label class="range-control" for="${id}"><span>${label}</span><strong>${value}${suffix}</strong><input id="${id}" type="range" min="${min}" max="${max}" step="1" value="${value}" data-suffix="${escapeHTML(suffix)}"></label>`; }
+function slider(id, label, min, max, value, suffix = "") { const percent = (value - min) / (max - min) * 100; return `<label class="range-control" for="${id}" style="--range-pct:${percent}%"><span>${label}</span><strong>${value}${suffix}</strong><input id="${id}" type="range" min="${min}" max="${max}" step="1" value="${value}" data-suffix="${escapeHTML(suffix)}"></label>`; }
 
 function attachCopyPointerDrag(source, targets, onDrop) {
   source.draggable = false;
@@ -155,36 +155,51 @@ function renderPictograph() {
 
 function barChartHTML(counts, interactive = false) {
   const ticks = Array.from({ length: 7 }, (_, index) => 12 - index * 2);
-  return `<div class="bar-chart-shell"><div class="y-axis">${ticks.map(value => `<span>${value}</span>`).join("")}</div><div class="bar-plot">${ticks.map(() => `<i class="grid-line"></i>`).join("")}<div class="bars">${counts.map((value, index) => `<div class="bar-column"><div class="bar-value">${value}</div><div class="bar-fill" style="height:${value / 12 * 100}%;--bar:${COLORS[index]};--bar-light:${LIGHT_COLORS[index]}">${interactive ? `<button type="button" class="bar-handle" data-bar="${index}" aria-label="${loc(ml("Laraskan palang", "调整柱形", "Adjust bar"))}"></button>` : ""}</div><strong>${CATEGORIES[index]}</strong></div>`).join("")}</div></div></div>`;
+  return `<div class="bar-chart-shell"><div class="y-axis">${ticks.map(value => `<span>${value}</span>`).join("")}</div><div class="bar-plot">${ticks.map(() => `<i class="grid-line"></i>`).join("")}<div class="bars">${counts.map((value, index) => `<div class="bar-column" data-bar-column="${index}" style="--ratio:${value / 12};--bar:${COLORS[index]};--bar-light:${LIGHT_COLORS[index]}"><div class="bar-fill">${interactive ? `<button type="button" class="bar-handle" data-bar="${index}" aria-label="${loc(ml("Laraskan palang", "调整柱形", "Adjust bar"))}: ${value}">${value}</button>` : `<span class="bar-top-value">${value}</span>`}</div><strong>${CATEGORIES[index]}</strong></div>`).join("")}</div></div></div>`;
+}
+
+function updateBarSummary() {
+  const max = Math.max(...state.tool.counts); const names = CATEGORIES.filter((_, index) => state.tool.counts[index] === max).join(", ");
+  setSummary(`${loc(ml("Palang tertinggi", "最高的柱形", "Tallest bar"))}: <strong>${names}</strong> · ${loc(ml("Nilai", "数值", "Value"))} <strong>${max}</strong>`);
+}
+
+function updateBarStage(index, value) {
+  const column = els.stage.querySelector(`[data-bar-column="${index}"]`); if (!column) return;
+  column.style.setProperty("--ratio", value / 12); const handle = column.querySelector(".bar-handle"); const label = column.querySelector(".bar-top-value");
+  if (handle) { handle.textContent = value; handle.setAttribute("aria-label", `${loc(ml("Laraskan palang", "调整柱形", "Adjust bar"))}: ${value}`); }
+  if (label) label.textContent = value;
+  const tableValue = els.stage.querySelector(`.data-table > div:nth-child(${index + 1}) strong`); if (tableValue) tableValue.textContent = value;
+  updateBarSummary();
 }
 
 function attachBarDrag() {
   els.stage.querySelectorAll("[data-bar]").forEach(handle => {
     handle.addEventListener("pointerdown", event => {
-      event.preventDefault(); const index = Number(handle.dataset.bar); const plot = handle.closest(".bar-plot");
-      const move = pointerEvent => { const rect = plot.getBoundingClientRect(); const value = clamp(Math.round((rect.bottom - 34 - pointerEvent.clientY) / (rect.height - 50) * 12), 0, 12); if (state.tool.counts[index] !== value) { state.tool.counts[index] = value; state.tool.interacted = true; renderTool(); } };
-      const end = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", end); beep("drop"); };
-      document.addEventListener("pointermove", move); document.addEventListener("pointerup", end, { once: true });
+      event.preventDefault(); const index = Number(handle.dataset.bar); const plot = handle.closest(".bar-plot"); handle.setPointerCapture?.(event.pointerId);
+      const move = pointerEvent => { const rect = plot.getBoundingClientRect(); const dataBottom = rect.bottom - 32; const value = clamp(Math.round((dataBottom - pointerEvent.clientY) / (rect.height - 32) * 12), 0, 12); if (state.tool.counts[index] !== value) { state.tool.counts[index] = value; state.tool.interacted = true; updateBarStage(index, value); const range = document.querySelector(`#barValue${index}`); if (range) { range.value = value; range.closest(".range-control").style.setProperty("--range-pct", `${value / 12 * 100}%`); range.closest(".range-control").querySelector("strong").textContent = value; } } };
+      const end = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", end); handle.removeEventListener("pointercancel", end); beep("drop"); };
+      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", end); handle.addEventListener("pointercancel", end);
     });
   });
 }
 
 function renderBarChart() {
-  const t = state.tool; const max = Math.max(...t.counts); const maxCategories = CATEGORIES.filter((_, i) => t.counts[i] === max).join(", ");
+  const t = state.tool;
   setChallenge(loc(ml("Tarik palang untuk mengubah data", "拖动柱形改变数据", "Drag the bars to change the data")), loc(ml("Pemegang bulat bergerak terus bersama penuding. Skala menegak kekal 0 hingga 12.", "圆形控制点会跟随鼠标移动，纵轴保持 0 至 12。", "The round handle follows the pointer. The vertical scale stays from 0 to 12.")));
   els.stage.innerHTML = `<div class="chart-workbench">${barChartHTML(t.counts, true)}${countsTable(t.counts)}</div>`;
   els.controls.innerHTML = `<div class="range-grid">${t.counts.map((value, index) => slider(`barValue${index}`, CATEGORIES[index], 0, 12, value)).join("")}</div>`;
-  t.counts.forEach((_, index) => document.querySelector(`#barValue${index}`).addEventListener("input", event => { state.tool.counts[index] = Number(event.target.value); state.tool.interacted = true; renderTool(); }));
+  t.counts.forEach((_, index) => document.querySelector(`#barValue${index}`).addEventListener("input", event => { const value = Number(event.target.value); state.tool.counts[index] = value; state.tool.interacted = true; updateBarStage(index, value); }));
   attachBarDrag();
-  setSummary(`${loc(ml("Palang tertinggi", "最高的柱形", "Tallest bar"))}: <strong>${maxCategories}</strong> · ${loc(ml("Nilai", "数值", "Value"))} <strong>${max}</strong>`);
+  updateBarSummary();
 }
 
 function renderChartCompare() {
   const t = state.tool;
   setChallenge(loc(ml("Satu data, dua perwakilan", "同一组数据，两种表示方式", "One data set, two representations")), loc(ml("Ubah mana-mana nilai. Kira simbol dan bandingkan dengan ketinggian palang.", "改变任一数值，数一数图标并对照柱形高度。", "Change any value. Count the symbols and compare them with the bar height.")));
-  els.stage.innerHTML = `<div class="dual-chart"><section><h3>${loc(ml("Piktograf", "象形统计图", "Pictograph"))}</h3>${pictographRows(t.counts)}</section><section><h3>${loc(ml("Carta palang", "条形统计图", "Bar chart"))}</h3>${barChartHTML(t.counts)}</section></div>`;
+  const updateStage = () => { els.stage.innerHTML = `<div class="dual-chart"><section><h3>${loc(ml("Piktograf", "象形统计图", "Pictograph"))}</h3>${pictographRows(t.counts)}</section><section><h3>${loc(ml("Carta palang", "条形统计图", "Bar chart"))}</h3>${barChartHTML(t.counts)}</section></div>`; };
+  updateStage();
   els.controls.innerHTML = `<div class="range-grid">${t.counts.map((value, index) => slider(`compare${index}`, CATEGORIES[index], 0, 12, value)).join("")}</div>`;
-  t.counts.forEach((_, index) => document.querySelector(`#compare${index}`).addEventListener("input", event => { state.tool.counts[index] = Number(event.target.value); state.tool.interacted = true; renderTool(); }));
+  t.counts.forEach((_, index) => document.querySelector(`#compare${index}`).addEventListener("input", event => { state.tool.counts[index] = Number(event.target.value); state.tool.interacted = true; updateStage(); }));
   setSummary(loc(ml("Kedua-dua carta mewakili jumlah yang sama; hanya bentuk perwakilannya berbeza.", "两种统计图表示相同的数据，只是呈现方式不同。", "Both charts represent the same data; only the form of representation differs.")));
 }
 
@@ -196,19 +211,40 @@ function pieGradient(counts) {
 }
 
 function renderPieExplorer() {
-  const t = state.tool; const total = t.counts.reduce((a, b) => a + b, 0); const value = t.counts[t.selected]; const percent = total ? value / total * 100 : 0;
+  const t = state.tool;
   setChallenge(loc(ml("Ubah data dan tafsir carta pai", "改变数据并解读饼图", "Change the data and interpret the pie chart")), loc(ml("Pilih A, B, C atau D. Bahagian yang dipilih diterangkan tanpa mengubah jumlah data.", "选择 A、B、C 或 D，查看所选部分在总数中所占的比例。", "Choose A, B, C or D to inspect that part of the total.")));
-  els.stage.innerHTML = `<div class="pie-explorer"><div class="pie-wrap"><div class="pie-chart" style="background:${pieGradient(t.counts)}"><span>${total}<small>${loc(ml("jumlah", "总数", "total"))}</small></span></div></div><div class="pie-legend">${CATEGORIES.map((category, index) => `<button type="button" data-pie="${index}" class="${t.selected === index ? "active" : ""}" style="--legend:${COLORS[index]}"><i></i><strong>${category}</strong><span>${t.counts[index]}</span></button>`).join("")}</div><div class="selected-sector" style="--selected:${COLORS[t.selected]}"><span>${loc(ml("Bahagian dipilih", "所选部分", "Selected part"))}</span><strong>${CATEGORIES[t.selected]}</strong><p>${value} ${loc(ml("daripada", "占总数", "out of"))} ${total || 0}</p><b>${percent.toFixed(1)}%</b></div></div>`;
+  const updateStage = () => {
+    const total = t.counts.reduce((a, b) => a + b, 0); const value = t.counts[t.selected]; const percent = total ? value / total * 100 : 0;
+    els.stage.innerHTML = `<div class="pie-explorer"><div class="pie-wrap"><div class="pie-chart" style="background:${pieGradient(t.counts)}"><span>${total}<small>${loc(ml("jumlah", "总数", "total"))}</small></span></div></div><div class="pie-legend">${CATEGORIES.map((category, index) => `<button type="button" data-pie="${index}" class="${t.selected === index ? "active" : ""}" style="--legend:${COLORS[index]}"><i></i><strong>${category}</strong><span>${t.counts[index]}</span></button>`).join("")}</div><div class="selected-sector" style="--selected:${COLORS[t.selected]}"><span>${loc(ml("Bahagian dipilih", "所选部分", "Selected part"))}</span><strong>${CATEGORIES[t.selected]}</strong><p>${value} ${loc(ml("daripada", "占总数", "out of"))} ${total || 0}</p><b>${percent.toFixed(1)}%</b></div></div>`;
+    els.stage.querySelectorAll("[data-pie]").forEach(button => button.addEventListener("click", () => { t.selected = Number(button.dataset.pie); t.interacted = true; beep(); updateStage(); updateSummary(); }));
+  };
+  const updateSummary = () => { const total = t.counts.reduce((a, b) => a + b, 0); const value = t.counts[t.selected]; const percent = total ? value / total * 100 : 0; setSummary(`${CATEGORIES[t.selected]} = <strong>${value}</strong> · ${value}/${total || 0} = <strong>${percent.toFixed(1)}%</strong>`); };
+  updateStage();
   els.controls.innerHTML = `<div class="range-grid">${t.counts.map((count, index) => slider(`pieValue${index}`, CATEGORIES[index], 0, 12, count)).join("")}</div>`;
-  els.stage.querySelectorAll("[data-pie]").forEach(button => button.addEventListener("click", () => changeTool(x => { x.selected = Number(button.dataset.pie); x.interacted = true; })));
-  t.counts.forEach((_, index) => document.querySelector(`#pieValue${index}`).addEventListener("input", event => { state.tool.counts[index] = Number(event.target.value); state.tool.interacted = true; renderTool(); }));
-  setSummary(`${CATEGORIES[t.selected]} = <strong>${value}</strong> · ${value}/${total || 0} = <strong>${percent.toFixed(1)}%</strong>`);
+  t.counts.forEach((_, index) => document.querySelector(`#pieValue${index}`).addEventListener("input", event => { t.counts[index] = Number(event.target.value); t.interacted = true; updateStage(); updateSummary(); }));
+  updateSummary();
 }
 
 function statistics(values) {
-  const sorted = [...values].sort((a, b) => a - b); const mean = values.reduce((a, b) => a + b, 0) / values.length; const middle = Math.floor(sorted.length / 2); const median = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  const sorted = [...values].sort((a, b) => a - b); const sum = values.reduce((a, b) => a + b, 0); const mean = sum / values.length; const middle = Math.floor(sorted.length / 2); const median = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
   const frequencies = new Map(); sorted.forEach(value => frequencies.set(value, (frequencies.get(value) || 0) + 1)); const highest = Math.max(...frequencies.values()); const modes = highest === 1 ? [] : [...frequencies].filter(([, count]) => count === highest).map(([value]) => value);
-  return { sorted, mean, median, modes, range: sorted.at(-1) - sorted[0] };
+  return { sorted, sum, mean, median, modes, highest, range: sorted.at(-1) - sorted[0] };
+}
+
+function statisticsReadoutHTML(values) {
+  const result = statistics(values);
+  return `<div class="sorted-row"><span>${loc(ml("Susunan", "排序", "Sorted"))}</span>${result.sorted.map((value, index) => `<b class="${index === Math.floor(result.sorted.length / 2) ? "middle" : ""}">${value}</b>`).join("")}</div><div class="stat-metrics"><div><span>${loc(ml("Mod", "众数", "Mode"))}</span><strong>${result.modes.length ? result.modes.join(", ") : "—"}</strong><small>${loc(ml("paling kerap", "出现最多", "most frequent"))}</small></div><div><span>${loc(ml("Median", "中位数", "Median"))}</span><strong>${result.median}</strong><small>${loc(ml("nilai tengah", "中间的数", "middle value"))}</small></div><div><span>${loc(ml("Min", "平均数", "Mean"))}</span><strong>${result.mean.toFixed(2)}</strong><small>${loc(ml("jumlah ÷ bilangan", "总和 ÷ 个数", "sum ÷ count"))}</small></div><div><span>${loc(ml("Julat", "极差", "Range"))}</span><strong>${result.range}</strong><small>${loc(ml("terbesar − terkecil", "最大值 − 最小值", "largest − smallest"))}</small></div></div>`;
+}
+
+function statisticsFormulaHTML(values) {
+  const result = statistics(values); const middle = Math.floor(result.sorted.length / 2); const modeFormula = result.modes.length ? `${result.modes.join(", ")} · ${loc(ml("muncul", "出现", "appears"))} ${result.highest} ${loc(ml("kali", "次", "times"))}` : loc(ml("Semua nilai muncul sekali", "每个数都只出现一次，没有众数", "Every value appears once; there is no mode"));
+  const medianFormula = result.sorted.length % 2 ? `${loc(ml("Nilai ke", "第", "Value"))} ${middle + 1} = ${result.median}` : `(${result.sorted[middle - 1]} + ${result.sorted[middle]}) ÷ 2 = ${result.median}`;
+  return `<div class="formula-summary-grid"><div><span>${loc(ml("Mod", "众数", "Mode"))}</span><strong>${modeFormula}</strong></div><div><span>${loc(ml("Median", "中位数", "Median"))}</span><strong>${medianFormula}</strong></div><div><span>${loc(ml("Min", "平均数", "Mean"))}</span><strong>${result.sum} ÷ ${values.length} = ${result.mean.toFixed(2)}</strong></div><div><span>${loc(ml("Julat", "极差", "Range"))}</span><strong>${result.sorted.at(-1)} − ${result.sorted[0]} = ${result.range}</strong></div></div>`;
+}
+
+function updateStatisticsReadout() {
+  const readout = document.querySelector("#statisticsReadout"); if (readout) readout.innerHTML = statisticsReadoutHTML(state.tool.values);
+  setSummary(statisticsFormulaHTML(state.tool.values));
 }
 
 function attachNumberDrag() {
@@ -216,50 +252,70 @@ function attachNumberDrag() {
     chip.addEventListener("keydown", event => {
       if (!["ArrowLeft", "ArrowRight", "ArrowDown", "ArrowUp"].includes(event.key)) return;
       event.preventDefault(); const index = Number(chip.dataset.numberChip); const delta = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : 1;
-      changeTool(x => { x.values[index] = clamp(x.values[index] + delta, 0, 12); x.interacted = true; }, "drop");
+      state.tool.values[index] = clamp(state.tool.values[index] + delta, 0, 12); state.tool.interacted = true; chip.textContent = state.tool.values[index]; chip.style.left = `${state.tool.values[index] / 12 * 100}%`; updateStatisticsReadout(); beep("drop");
     });
     chip.addEventListener("pointerdown", event => {
-      event.preventDefault(); const index = Number(chip.dataset.numberChip); const track = chip.closest(".number-line");
-      const move = pointerEvent => { const rect = track.getBoundingClientRect(); const value = clamp(Math.round((pointerEvent.clientX - rect.left) / rect.width * 12), 0, 12); if (state.tool.values[index] !== value) { state.tool.values[index] = value; state.tool.interacted = true; renderTool(); } };
-      const end = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", end); beep("drop"); };
-      document.addEventListener("pointermove", move); document.addEventListener("pointerup", end, { once: true });
+      event.preventDefault(); const index = Number(chip.dataset.numberChip); const track = chip.closest(".number-line"); chip.setPointerCapture?.(event.pointerId); chip.classList.add("dragging");
+      const move = pointerEvent => { const rect = track.getBoundingClientRect(); const value = clamp(Math.round((pointerEvent.clientX - rect.left) / rect.width * 12), 0, 12); if (state.tool.values[index] !== value) { state.tool.values[index] = value; state.tool.interacted = true; chip.textContent = value; chip.style.left = `${value / 12 * 100}%`; updateStatisticsReadout(); } };
+      const end = () => { chip.removeEventListener("pointermove", move); chip.removeEventListener("pointerup", end); chip.removeEventListener("pointercancel", end); chip.classList.remove("dragging"); beep("drop"); };
+      chip.addEventListener("pointermove", move); chip.addEventListener("pointerup", end); chip.addEventListener("pointercancel", end);
     });
   });
 }
 
 function renderStatisticsLab() {
-  const t = state.tool; const result = statistics(t.values);
+  const t = state.tool;
   setChallenge(loc(ml("Gerakkan data, lihat statistik berubah", "移动数据，观察统计量变化", "Move the data and watch the statistics change")), loc(ml("Tarik kad nombor di sepanjang garis 0 hingga 12. Susunan di bawah sentiasa daripada kecil kepada besar.", "沿着 0 至 12 的数轴拖动数字卡；下方会自动从小到大排列。", "Drag the number cards along the 0–12 line. The row below always sorts them from least to greatest.")));
-  els.stage.innerHTML = `<div class="statistics-board"><div class="number-line">${Array.from({ length: 13 }, (_, value) => `<i style="left:${value / 12 * 100}%"><span>${value}</span></i>`).join("")}${t.values.map((value, index) => `<button type="button" class="number-chip" data-number-chip="${index}" style="left:${value / 12 * 100}%;top:${12 + index % 3 * 46}px;--chip:${COLORS[index % 4]}">${value}</button>`).join("")}</div><div class="sorted-row"><span>${loc(ml("Susunan", "排序", "Sorted"))}</span>${result.sorted.map((value, index) => `<b class="${index === Math.floor(result.sorted.length / 2) ? "middle" : ""}">${value}</b>`).join("")}</div><div class="stat-metrics"><div><span>${loc(ml("Mod", "众数", "Mode"))}</span><strong>${result.modes.length ? result.modes.join(", ") : "—"}</strong><small>${loc(ml("paling kerap", "出现最多", "most frequent"))}</small></div><div><span>${loc(ml("Median", "中位数", "Median"))}</span><strong>${result.median}</strong><small>${loc(ml("nilai tengah", "中间的数", "middle value"))}</small></div><div><span>${loc(ml("Min", "平均数", "Mean"))}</span><strong>${result.mean.toFixed(2)}</strong><small>${loc(ml("jumlah ÷ bilangan", "总和 ÷ 个数", "sum ÷ count"))}</small></div><div><span>${loc(ml("Julat", "极差", "Range"))}</span><strong>${result.range}</strong><small>${loc(ml("terbesar − terkecil", "最大值 − 最小值", "largest − smallest"))}</small></div></div></div>`;
-  els.controls.innerHTML = `<div class="board-actions"><button type="button" id="addNumber" class="primary-button compact">＋ ${loc(ml("Tambah kad", "增加数字卡", "Add card"))}</button><button type="button" id="removeNumber" class="secondary-button compact" ${t.values.length <= 3 ? "disabled" : ""}>− ${loc(ml("Keluarkan kad terakhir", "移除最后一张", "Remove last card"))}</button></div>`;
+  els.stage.innerHTML = `<div class="statistics-board"><div class="number-line">${Array.from({ length: 13 }, (_, value) => `<i style="left:${value / 12 * 100}%"><span>${value}</span></i>`).join("")}${t.values.map((value, index) => `<button type="button" class="number-chip" data-number-chip="${index}" style="left:${value / 12 * 100}%;top:${12 + index % 3 * 46}px;--chip:${COLORS[index % 4]}" aria-label="${loc(ml("Kad nombor", "数字卡", "Number card"))} ${value}">${value}</button>`).join("")}</div><div id="statisticsReadout">${statisticsReadoutHTML(t.values)}</div></div>`;
+  els.controls.innerHTML = `<div class="number-picker"><span>${loc(ml("Pilih nombor untuk ditambah", "选择要添加的号码", "Choose a number to add"))}</span><div>${Array.from({ length: 13 }, (_, value) => `<button type="button" data-add-number="${value}" ${t.values.length >= 10 ? "disabled" : ""}>${value}</button>`).join("")}</div></div><div class="board-actions"><button type="button" id="removeNumber" class="secondary-button compact" ${t.values.length <= 3 ? "disabled" : ""}>− ${loc(ml("Keluarkan kad terakhir", "移除最后一张", "Remove last card"))}</button></div>`;
   attachNumberDrag();
-  document.querySelector("#addNumber").addEventListener("click", () => changeTool(x => { if (x.values.length < 10) x.values.push(6); x.interacted = true; }));
+  document.querySelectorAll("[data-add-number]").forEach(button => button.addEventListener("click", () => changeTool(x => { if (x.values.length < 10) x.values.push(Number(button.dataset.addNumber)); x.interacted = true; }, "drop")));
   document.querySelector("#removeNumber").addEventListener("click", () => changeTool(x => { if (x.values.length > 3) x.values.pop(); x.interacted = true; }));
-  setSummary(`${loc(ml("Data", "数据", "Data"))}: ${t.values.join(", ")} · ${loc(ml("Min", "平均数", "Mean"))} = ${t.values.reduce((a, b) => a + b, 0)} ÷ ${t.values.length} = <strong>${result.mean.toFixed(2)}</strong>`);
+  setSummary(statisticsFormulaHTML(t.values));
 }
 
 function sectorCounts(sectors) { return CATEGORIES.map(category => sectors.filter(item => item === category).length); }
 
+function polarPoint(radius, angle) { const radians = (angle - 90) * Math.PI / 180; return [150 + radius * Math.cos(radians), 150 + radius * Math.sin(radians)]; }
+function composerPieSVG(sectors) {
+  const slices = Array.from({ length: 8 }, (_, index) => {
+    const start = polarPoint(116, index * 45); const end = polarPoint(116, (index + 1) * 45); const label = polarPoint(78, index * 45 + 22.5); const category = sectors[index]; const categoryIndex = CATEGORIES.indexOf(category); const fill = category ? COLORS[categoryIndex] : "#f1ede2";
+    return `<path d="M150 150 L${start[0].toFixed(2)} ${start[1].toFixed(2)} A116 116 0 0 1 ${end[0].toFixed(2)} ${end[1].toFixed(2)} Z" fill="${fill}" class="${category ? "filled" : "empty"}"/><text x="${label[0].toFixed(1)}" y="${label[1].toFixed(1)}" class="slice-label">${category || "45°"}</text>`;
+  }).join("");
+  return `<svg class="composer-pie-svg" viewBox="0 0 300 300" role="img" aria-label="${sectors.length} ${loc(ml("daripada lapan bahagian", "个（共八个）小扇形", "of eight sectors"))}">${slices}<circle cx="150" cy="150" r="46" class="composer-centre"/><text x="150" y="145" class="composer-total">${sectors.length}/8</text><text x="150" y="169" class="composer-angle">${sectors.length * 45}°</text></svg>`;
+}
+
 function renderPieComposer() {
   const t = state.tool; const counts = sectorCounts(t.sectors); const full = t.sectors.length === 8;
-  setChallenge(loc(ml("Lengkapkan satu bulatan dengan bahagian 45°", "用 45° 的部分完成一个圆", "Complete a circle with 45° parts")), loc(ml("Seret token A, B, C atau D ke bulatan. Lapan token membentuk 360°.", "把 A、B、C 或 D 标记拖入圆内；八个标记组成 360°。", "Drag A, B, C or D into the circle. Eight tokens make 360°.")));
-  els.stage.innerHTML = `<div class="pie-composer"><div class="sector-bank">${CATEGORIES.map((category, index) => `<button type="button" draggable="true" data-sector-token="${category}" class="sector-token ${t.selected === category ? "selected" : ""}" style="--sector:${COLORS[index]}"><strong>${category}</strong><span>45°</span></button>`).join("")}</div><div class="pie-drop ${full ? "full" : ""}" id="pieDrop" role="button" tabindex="0"><div class="pie-chart composed" style="background:${pieGradient(counts)}"><span>${t.sectors.length}/8<small>${full ? "360°" : `${t.sectors.length * 45}°`}</small></span></div><p>${full ? loc(ml("Carta pai lengkap", "饼图已完成", "Pie chart complete")) : loc(ml("Lepaskan token di sini", "把标记拖到这里", "Drop a token here"))}</p></div><div class="angle-table">${CATEGORIES.map((category, index) => `<div><span class="category-dot" style="--dot:${COLORS[index]}">${category}</span><strong>${counts[index]} × 45°</strong><b>${counts[index] * 45}°</b></div>`).join("")}</div></div>`;
-  els.controls.innerHTML = `<div class="board-actions"><button type="button" id="removeSector" class="secondary-button compact" ${!t.sectors.length ? "disabled" : ""}>↶ ${loc(ml("Keluarkan bahagian terakhir", "移除最后一个部分", "Remove last part"))}</button><button type="button" id="clearPie" class="secondary-button compact">↻ ${loc(ml("Kosongkan bulatan", "清空圆形", "Clear circle"))}</button></div>`;
+  const remaining = 8 - t.sectors.length;
+  setChallenge(loc(ml("Satu bulatan dibahagi kepada 8 bahagian sama besar", "一个圆分成 8 个相同大小的小扇形", "A circle is divided into 8 equal sectors")), loc(ml("Setiap bahagian ialah 45°. Tambah warna satu demi satu dan lihat jumlah sudut.", "每一格都是 45°。逐格加入颜色并观察角度总数。", "Each sector is 45°. Add colours one sector at a time and watch the angle total.")));
+  els.stage.innerHTML = `<div class="angle-relationship"><div><strong>1</strong><span>${loc(ml("bahagian", "格", "sector"))}</span><b>45°</b></div><div><strong>2</strong><span>${loc(ml("bahagian", "格", "sectors"))}</span><b>90°</b></div><div><strong>4</strong><span>${loc(ml("bahagian", "格", "sectors"))}</span><b>180°</b></div><div><strong>8</strong><span>${loc(ml("bahagian", "格", "sectors"))}</span><b>360°</b></div></div><div class="pie-composer"><div class="sector-bank"><h3>${loc(ml("Pilih warna untuk bahagian seterusnya", "选择下一格的颜色", "Choose the next sector colour"))}</h3>${CATEGORIES.map((category, index) => `<button type="button" draggable="true" data-sector-token="${category}" class="sector-token ${t.selected === category ? "selected" : ""}" style="--sector:${COLORS[index]}"><strong>${category}</strong><span>＋1 ${loc(ml("bahagian", "格", "sector"))} = 45°</span></button>`).join("")}</div><div class="pie-drop ${full ? "full" : ""}" id="pieDrop" role="button" tabindex="0">${composerPieSVG(t.sectors)}<p>${full ? loc(ml("8 bahagian = satu bulatan lengkap", "8 格 = 一个完整的圆", "8 sectors = one complete circle")) : `${loc(ml("Masih perlu", "还差", "Still needed"))} ${remaining} ${loc(ml("bahagian", "格", "sectors"))} = ${remaining * 45}°`}</p></div><div class="angle-table"><h3>${loc(ml("Sudut setiap warna", "每种颜色的角度", "Angle for each colour"))}</h3>${CATEGORIES.map((category, index) => `<div><span class="category-dot" style="--dot:${COLORS[index]}">${category}</span><strong>${counts[index]} ${loc(ml("bahagian", "格", "sector"))} × 45°</strong><b>${counts[index] * 45}°</b></div>`).join("")}</div></div>`;
+  els.controls.innerHTML = `<div class="angle-demos"><span>${loc(ml("Lihat contoh saiz sudut", "查看角度大小", "View an angle size"))}</span><button type="button" data-demo-parts="1">1 ${loc(ml("bahagian", "格", "sector"))} = 45°</button><button type="button" data-demo-parts="2">2 ${loc(ml("bahagian", "格", "sectors"))} = 90°</button><button type="button" data-demo-parts="4">4 ${loc(ml("bahagian", "格", "sectors"))} = 180°</button></div><div class="board-actions"><button type="button" id="removeSector" class="secondary-button compact" ${!t.sectors.length ? "disabled" : ""}>↶ ${loc(ml("Keluarkan bahagian terakhir", "移除最后一格", "Remove last sector"))}</button><button type="button" id="clearPie" class="secondary-button compact">↻ ${loc(ml("Kosongkan bulatan", "清空圆形", "Clear circle"))}</button></div>`;
   const add = category => changeTool(x => { if (x.sectors.length < 8) x.sectors.push(category); x.selected = null; x.interacted = true; }, "drop");
   els.stage.querySelectorAll("[data-sector-token]").forEach(button => { button.addEventListener("click", () => { if (Date.now() - Number(button.dataset.draggedAt || 0) < 400) return; changeTool(x => { x.selected = x.selected === button.dataset.sectorToken ? null : button.dataset.sectorToken; }); }); button.addEventListener("dragstart", event => { event.dataTransfer.setData("text/plain", button.dataset.sectorToken); event.dataTransfer.effectAllowed = "copy"; }); });
   const drop = document.querySelector("#pieDrop"); drop.addEventListener("dragover", event => { event.preventDefault(); drop.classList.add("is-over"); }); drop.addEventListener("dragleave", () => drop.classList.remove("is-over")); drop.addEventListener("drop", event => { event.preventDefault(); drop.classList.remove("is-over"); const category = event.dataTransfer.getData("text/plain"); if (CATEGORIES.includes(category)) add(category); }); drop.addEventListener("click", () => { if (state.tool.selected) add(state.tool.selected); });
   els.stage.querySelectorAll("[data-sector-token]").forEach(button => attachCopyPointerDrag(button, [drop], () => add(button.dataset.sectorToken)));
+  document.querySelectorAll("[data-demo-parts]").forEach(button => button.addEventListener("click", () => changeTool(x => { x.sectors = Array(Number(button.dataset.demoParts)).fill("A"); x.selected = null; x.interacted = true; }, "done")));
   document.querySelector("#removeSector").addEventListener("click", () => changeTool(x => { x.sectors.pop(); x.interacted = true; })); document.querySelector("#clearPie").addEventListener("click", () => changeTool(x => { x.sectors = []; x.selected = null; }));
   setSummary(`${t.sectors.length} × 45° = <strong>${t.sectors.length * 45}°</strong>${full ? ` · ✓ ${loc(ml("Satu bulatan penuh", "一个完整的圆", "One full circle"))}` : ""}`, full ? "success" : "neutral");
 }
 
 function chanceLabel(target, other) {
-  const total = target + other;
   if (target === 0) return ml("Mustahil", "不可能", "Impossible");
   if (other === 0) return ml("Pasti", "肯定", "Certain");
   if (target === other) return ml("Sama kemungkinan", "可能性相同", "Equally likely");
   if (target < other) return ml("Kecil kemungkinan", "可能性小", "Less likely");
   return ml("Besar kemungkinan", "可能性大", "More likely");
+}
+
+function chancePosition(target, other) { if (target === 0) return 0; if (other === 0) return 4; if (target === other) return 2; return target < other ? 1 : 3; }
+function colourName(colour) { return colour === "green" ? ml("Hijau", "绿色", "Green") : ml("Ungu", "紫色", "Purple"); }
+function chanceReason(target, other, targetColour, otherColour) {
+  if (target === 0) return ml(`Tiada token ${loc(colourName(targetColour))} di dalam beg.`, `袋里没有${loc(colourName(targetColour))}标记。`, `There are no ${loc(colourName(targetColour)).toLowerCase()} tokens in the bag.`);
+  if (other === 0) return ml(`Semua token di dalam beg berwarna ${loc(colourName(targetColour))}.`, `袋里全部都是${loc(colourName(targetColour))}标记。`, `Every token in the bag is ${loc(colourName(targetColour)).toLowerCase()}.`);
+  if (target === other) return ml(`Kedua-dua warna mempunyai ${target} token.`, `两种颜色都有 ${target} 个标记。`, `Both colours have ${target} tokens.`);
+  const comparison = target < other ? ml("kurang daripada", "少于", "fewer than") : ml("lebih daripada", "多于", "more than");
+  return ml(`${target} token ${loc(colourName(targetColour))} ${loc(comparison)} ${other} token ${loc(colourName(otherColour))}.`, `${target} 个${loc(colourName(targetColour))}标记${loc(comparison)} ${other} 个${loc(colourName(otherColour))}标记。`, `${target} ${loc(colourName(targetColour)).toLowerCase()} tokens is ${loc(comparison)} ${other} ${loc(colourName(otherColour)).toLowerCase()} tokens.`);
 }
 
 function drawFromBag(t, times = 1) {
@@ -269,17 +325,25 @@ function drawFromBag(t, times = 1) {
 }
 
 function renderProbabilityLab() {
-  const t = state.tool; const total = t.green + t.purple; const label = chanceLabel(t.green, t.purple); const greenDraws = t.draws.filter(item => item === "green").length; const purpleDraws = t.draws.length - greenDraws;
-  setChallenge(loc(ml("Ubah kandungan beg dan buat cabutan", "改变袋中组成并进行抽取", "Change the bag and make draws")), loc(ml("Fokus pada token hijau. Bandingkan kandungan beg dengan hasil cabutan berulang.", "以绿色标记为观察对象，对照袋中组成与重复抽取结果。", "Focus on the green token. Compare the bag contents with repeated draw results.")));
-  els.stage.innerHTML = `<div class="probability-board"><div class="chance-scale"><span>${loc(ml("Mustahil", "不可能", "Impossible"))}</span><span>${loc(ml("Kecil kemungkinan", "可能性小", "Less likely"))}</span><span>${loc(ml("Sama kemungkinan", "可能性相同", "Equally likely"))}</span><span>${loc(ml("Besar kemungkinan", "可能性大", "More likely"))}</span><span>${loc(ml("Pasti", "肯定", "Certain"))}</span><i style="left:${total ? t.green / total * 100 : 0}%"></i></div><div class="bag-and-result"><div class="token-bag"><div class="bag-mouth"></div><div class="bag-tokens">${Array.from({ length: t.green }, () => `<i class="green"></i>`).join("")}${Array.from({ length: t.purple }, () => `<i class="purple"></i>`).join("")}</div><strong>${loc(ml("Kandungan beg", "袋中组成", "Bag contents"))}</strong></div><div class="chance-focus"><span>${loc(ml("Peluang mendapat hijau", "抽到绿色的可能性", "Chance of drawing green"))}</span><strong>${loc(label)}</strong><div class="last-draw ${t.last || "none"}">${t.last ? `<i></i><b>${loc(t.last === "green" ? ml("Hijau", "绿色", "Green") : ml("Ungu", "紫色", "Purple"))}</b>` : `<b>${loc(ml("Belum dicabut", "尚未抽取", "No draw yet"))}</b>`}</div></div></div><div class="draw-history"><div><i class="green"></i><span>${loc(ml("Hijau diperoleh", "抽到绿色", "Green drawn"))}</span><strong>${greenDraws}</strong></div><div><i class="purple"></i><span>${loc(ml("Ungu diperoleh", "抽到紫色", "Purple drawn"))}</span><strong>${purpleDraws}</strong></div><div><span>${loc(ml("Jumlah cabutan", "抽取次数", "Total draws"))}</span><strong>${t.draws.length}</strong></div></div></div>`;
+  const t = state.tool; const total = t.green + t.purple;
+  setChallenge(loc(ml("Pilih warna, bandingkan bilangannya, kemudian uji", "先选颜色、比较数量，再进行验证", "Choose a colour, compare the counts, then test")), loc(ml("Kebolehjadian menerangkan betapa mudah atau sukarnya warna pilihan akan dicabut.", "可能性说明抽到所选颜色是容易还是困难。", "Chance describes how easy or difficult it is to draw the chosen colour.")));
+  const updateStage = () => {
+    const total = t.green + t.purple; const otherColour = t.target === "green" ? "purple" : "green"; const targetCount = t[t.target]; const otherCount = t[otherColour]; const label = chanceLabel(targetCount, otherCount); const active = chancePosition(targetCount, otherCount); const greenDraws = t.draws.filter(item => item === "green").length; const purpleDraws = t.draws.length - greenDraws;
+    const labels = [ml("Mustahil", "不可能", "Impossible"), ml("Kecil kemungkinan", "可能性小", "Less likely"), ml("Sama kemungkinan", "可能性相同", "Equally likely"), ml("Besar kemungkinan", "可能性大", "More likely"), ml("Pasti", "肯定", "Certain")];
+    els.stage.innerHTML = `<div class="probability-board"><div class="target-choice"><span><b>1</b>${loc(ml("Pilih warna yang hendak diperhatikan", "选择要观察的颜色", "Choose the colour to observe"))}</span><div><button type="button" data-target-colour="green" class="${t.target === "green" ? "active" : ""}"><i class="green"></i>${loc(colourName("green"))}</button><button type="button" data-target-colour="purple" class="${t.target === "purple" ? "active" : ""}"><i class="purple"></i>${loc(colourName("purple"))}</button></div></div><div class="bag-and-result"><div class="token-bag"><div class="bag-mouth"></div><div class="bag-tokens">${Array.from({ length: t.green }, () => `<i class="green"></i>`).join("")}${Array.from({ length: t.purple }, () => `<i class="purple"></i>`).join("")}</div><strong>${t.green} ${loc(colourName("green"))} + ${t.purple} ${loc(colourName("purple"))} = ${total}</strong></div><div class="chance-focus"><span><b>2</b>${loc(ml("Bandingkan jumlah di dalam beg", "比较袋里的数量", "Compare the counts in the bag"))}</span><div class="count-comparison"><strong class="${t.target}">${targetCount}</strong><span>${loc(colourName(t.target))}</span><b>${targetCount === otherCount ? "=" : targetCount < otherCount ? "<" : ">"}</b><strong class="${otherColour}">${otherCount}</strong><span>${loc(colourName(otherColour))}</span></div><p>${loc(chanceReason(targetCount, otherCount, t.target, otherColour))}</p><em>${loc(label)}</em></div></div><div class="chance-categories">${labels.map((item, index) => `<div class="${index === active && total ? "active" : ""}"><b>${index + 1}</b><span>${loc(item)}</span></div>`).join("")}</div><div class="draw-section"><header><b>3</b><span>${loc(ml("Cabut untuk menyemak", "抽取来验证", "Draw to check"))}</span><small>${loc(ml("Setiap token dimasukkan semula selepas cabutan.", "每次抽取后把标记放回袋里。", "Each token is returned to the bag after a draw."))}</small></header><div class="last-draw ${t.last || "none"}">${t.last ? `<i></i><b>${loc(colourName(t.last))}</b>` : `<b>${loc(ml("Belum dicabut", "尚未抽取", "No draw yet"))}</b>`}</div><div class="draw-history"><div><i class="green"></i><span>${loc(ml("Hijau diperoleh", "抽到绿色", "Green drawn"))}</span><strong>${greenDraws}</strong></div><div><i class="purple"></i><span>${loc(ml("Ungu diperoleh", "抽到紫色", "Purple drawn"))}</span><strong>${purpleDraws}</strong></div><div><span>${loc(ml("Jumlah cabutan", "抽取次数", "Total draws"))}</span><strong>${t.draws.length}</strong></div></div></div></div>`;
+    els.stage.querySelectorAll("[data-target-colour]").forEach(button => button.addEventListener("click", () => { t.target = button.dataset.targetColour; t.interacted = true; beep(); updateStage(); updateSummary(); }));
+  };
+  const updateSummary = () => { const otherColour = t.target === "green" ? "purple" : "green"; const label = chanceLabel(t[t.target], t[otherColour]); setSummary(`<strong>${loc(colourName(t.target))}</strong>: ${t[t.target]} ${t[t.target] === t[otherColour] ? "=" : t[t.target] < t[otherColour] ? "<" : ">"} ${t[otherColour]} · <strong>${loc(label)}</strong>`); };
+  updateStage();
   els.controls.innerHTML = `<div class="range-grid">${slider("greenCount", loc(ml("Token hijau", "绿色标记", "Green tokens")), 0, 8, t.green)}${slider("purpleCount", loc(ml("Token ungu", "紫色标记", "Purple tokens")), 0, 8, t.purple)}</div><div class="board-actions"><button type="button" id="drawOnce" class="primary-button compact" ${!total ? "disabled" : ""}>● ${loc(ml("Cabut sekali", "抽取一次", "Draw once"))}</button><button type="button" id="drawTwenty" class="primary-button compact" ${!total ? "disabled" : ""}>20× ${loc(ml("Cabut 20 kali", "抽取 20 次", "Draw 20 times"))}</button><button type="button" id="clearDraws" class="secondary-button compact">↻ ${loc(ml("Kosongkan hasil", "清除结果", "Clear results"))}</button></div>`;
-  ["green", "purple"].forEach(color => document.querySelector(`#${color}Count`).addEventListener("input", event => { state.tool[color] = Number(event.target.value); state.tool.draws = []; state.tool.last = null; state.tool.interacted = true; renderTool(); }));
+  ["green", "purple"].forEach(color => document.querySelector(`#${color}Count`).addEventListener("input", event => { t[color] = Number(event.target.value); t.draws = []; t.last = null; t.interacted = true; const currentTotal = t.green + t.purple; document.querySelector("#drawOnce").disabled = !currentTotal; document.querySelector("#drawTwenty").disabled = !currentTotal; updateStage(); updateSummary(); }));
   document.querySelector("#drawOnce").addEventListener("click", () => changeTool(x => drawFromBag(x, 1), "drop")); document.querySelector("#drawTwenty").addEventListener("click", () => changeTool(x => drawFromBag(x, 20), "done")); document.querySelector("#clearDraws").addEventListener("click", () => changeTool(x => { x.draws = []; x.last = null; }));
-  setSummary(`${loc(ml("Token hijau", "绿色标记", "Green token"))}: <strong>${loc(label)}</strong> · ${loc(ml("Kandungan beg", "袋中组成", "Bag contents"))} ${t.green}:${t.purple}`);
+  updateSummary();
 }
 
 function renderTool() {
   const info = ACTIVITIES[state.activity]; els.title.textContent = loc(info.label); els.scope.textContent = loc(info.scope); els.tip.textContent = loc(info.tip); els.badge.textContent = gradeLabel(state.grade);
+  els.teacherButton.classList.toggle("hidden", state.activity === "probabilityLab");
   els.stage.replaceChildren(); els.controls.replaceChildren();
   const renderers = { pictograph: renderPictograph, barChart: renderBarChart, chartCompare: renderChartCompare, pieExplorer: renderPieExplorer, statisticsLab: renderStatisticsLab, pieComposer: renderPieComposer, probabilityLab: renderProbabilityLab };
   renderers[state.activity]();
@@ -297,6 +361,6 @@ document.querySelector("#resetToolButton").addEventListener("click", () => { sta
 els.teacherButton.addEventListener("click", () => { state.teacherData.forEach((value, index) => { document.querySelector(`#teacher${CATEGORIES[index]}`).value = value; }); updateTeacherPreview(); els.teacher.showModal(); });
 document.querySelectorAll(".data-inputs input").forEach(input => input.addEventListener("input", updateTeacherPreview));
 document.querySelector("#useTeacherSettings").addEventListener("click", () => { state.teacherData = CATEGORIES.map(category => clamp(Number(document.querySelector(`#teacher${category}`).value) || 0, 0, 12)); state.tool = defaults(state.activity); els.teacher.close(); beep("done"); renderTool(); });
-document.addEventListener("input", event => { if (event.target.matches('input[type="range"][data-suffix]')) { const output = event.target.closest(".range-control")?.querySelector("strong"); if (output) output.textContent = `${event.target.value}${event.target.dataset.suffix || ""}`; } });
+document.addEventListener("input", event => { if (event.target.matches('input[type="range"][data-suffix]')) { const control = event.target.closest(".range-control"); const output = control?.querySelector("strong"); const min = Number(event.target.min); const max = Number(event.target.max); const value = Number(event.target.value); if (output) output.textContent = `${event.target.value}${event.target.dataset.suffix || ""}`; control?.style.setProperty("--range-pct", `${(value - min) / (max - min) * 100}%`); } });
 
 startTool();
